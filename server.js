@@ -81,6 +81,65 @@ const User = mongoose.model("ermUser", userSchema);
 const Project = mongoose.model("ermProject", projectSchema);
 const Assignment = mongoose.model("ermAssignment", assignmentSchema);
 
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Access token required" });
+  }
+
+  jwt.verify(
+    token,
+    process.env.JWT_SECRET || "fallback-secret",
+    (err, user) => {
+      if (err) {
+        return res.status(403).json({ error: "Invalid token" });
+      }
+      req.user = user;
+      next();
+    }
+  );
+};
+
+// Authorization middleware for managers
+const requireManager = (req, res, next) => {
+  if (req.user.role !== "manager") {
+    return res.status(403).json({ error: "Manager access required" });
+  }
+  next();
+};
+
+// Helper function to calculate available capacity
+
+const getAvailableCapacity = async (engineerId, startDate, endDate) => {
+  try {
+    const engineer = await User.findById(engineerId);
+    if (!engineer) return 0;
+
+    // Find overlapping assignments
+    const overlappingAssignments = await Assignment.find({
+      engineerId,
+      $or: [
+        {
+          startDate: { $lte: endDate },
+          endDate: { $gte: startDate },
+        },
+      ],
+    });
+
+    const totalAllocated = overlappingAssignments.reduce((sum, assignment) => {
+      return sum + assignment.allocationPercentage;
+    }, 0);
+
+    return Math.max(0, engineer.maxCapacity - totalAllocated);
+  } catch (error) {
+    console.error("Error calculating available capacity:", error);
+    return 0;
+  }
+};
+
 const PORT = process.env.PORT || 3004;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
