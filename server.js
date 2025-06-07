@@ -301,6 +301,112 @@ app.get("/api/engineers/:id/capacity", authenticateToken, async (req, res) => {
   }
 });
 
+// Project Routes
+app.get("/api/projects", authenticateToken, async (req, res) => {
+  try {
+    const projects = await Project.find()
+      .populate("managerId", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({ projects });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(
+  "/api/projects",
+  authenticateToken,
+  requireManager,
+  async (req, res) => {
+    try {
+      const project = new Project({
+        ...req.body,
+        managerId: req.user.userId,
+      });
+
+      await project.save();
+      await project.populate("managerId", "name email");
+
+      res.status(201).json({ project });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+app.get("/api/projects/:id", authenticateToken, async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id).populate(
+      "managerId",
+      "name email"
+    );
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    res.json({ project });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put(
+  "/api/projects/:id",
+  authenticateToken,
+  requireManager,
+  async (req, res) => {
+    try {
+      const project = await Project.findByIdAndUpdate(req.params.id, req.body, {
+        new: true,
+      }).populate("managerId", "name email");
+
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      res.json({ project });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+app.delete(
+  "/api/projects/:id",
+  authenticateToken,
+  requireManager,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if project exists
+      const project = await Project.findById(id);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Check if there are any active assignments for this project
+      const activeAssignments = await Assignment.find({ projectId: id });
+      if (activeAssignments.length > 0) {
+        return res.status(400).json({
+          error:
+            "Cannot delete project with active assignments. Please remove all assignments first.",
+        });
+      }
+
+      // Delete the project
+      await Project.findByIdAndDelete(id);
+
+      res.json({ message: "Project deleted successfully" });
+    } catch (error) {
+      console.error("Delete project error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
 const PORT = process.env.PORT || 3004;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
