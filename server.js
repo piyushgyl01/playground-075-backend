@@ -252,6 +252,55 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
+// Engineer Routes
+app.get("/api/engineers", authenticateToken, async (req, res) => {
+  try {
+    const engineers = await User.find({ role: "engineer" }).select("-password");
+
+    // Calculate current capacity for each engineer
+    const engineersWithCapacity = await Promise.all(
+      engineers.map(async (engineer) => {
+        const currentDate = new Date();
+        const futureDate = new Date();
+        futureDate.setMonth(currentDate.getMonth() + 1);
+
+        const availableCapacity = await getAvailableCapacity(
+          engineer._id,
+          currentDate,
+          futureDate
+        );
+
+        return {
+          ...engineer.toObject(),
+          availableCapacity,
+          currentAllocation: engineer.maxCapacity - availableCapacity,
+        };
+      })
+    );
+
+    res.json({ engineers: engineersWithCapacity });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/engineers/:id/capacity", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { startDate, endDate } = req.query;
+
+    const availableCapacity = await getAvailableCapacity(
+      id,
+      new Date(startDate),
+      new Date(endDate)
+    );
+
+    res.json({ availableCapacity });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 3004;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
