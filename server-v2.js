@@ -21,7 +21,6 @@ mongoose.connect(process.env.MONGO_URI).then(() => {
 });
 
 // Database Models
-
 const userSchema = new mongoose.Schema(
   {
     email: {
