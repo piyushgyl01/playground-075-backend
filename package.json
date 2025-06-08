@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "nodemon server-v2.js",
     "seed": "node -e \"require('./server.js'); setTimeout(() => { fetch('http://localhost:3004/api/seed', { method: 'POST' }); }, 2000);\""
   },
 
