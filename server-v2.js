@@ -1,3 +1,4 @@
+// server.js - Main Express server
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -5,16 +6,21 @@ const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
+// Load environment variables
 dotenv.config();
 
 const app = express();
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI).then(() => {
   console.log("Connected to DB");
 });
+
+// Database Models
 
 const userSchema = new mongoose.Schema(
   {
@@ -36,14 +42,14 @@ const userSchema = new mongoose.Schema(
       enum: ["engineer", "manager"],
       required: true,
     },
-    skills: [String],
+    skills: [String], // For engineers
     seniority: {
       type: String,
       enum: ["junior", "mid", "senior"],
     },
     maxCapacity: {
       type: Number,
-      default: 100,
+      default: 100, // 100 for full-time, 50 for part-time
     },
     department: String,
   },
@@ -116,7 +122,7 @@ const assignmentSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      default: "Developer",
+      default: "Developer", // Developer, Tech Lead, etc.
     },
   },
   {
@@ -128,6 +134,7 @@ const User = mongoose.model("ermUser", userSchema);
 const Project = mongoose.model("ermProject", projectSchema);
 const Assignment = mongoose.model("ermAssignment", assignmentSchema);
 
+// Authentication middleware
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -145,6 +152,7 @@ function authenticateToken(req, res, next) {
   });
 }
 
+// Authorization middleware for managers
 function requireManager(req, res, next) {
   if (req.user.role !== "manager") {
     return res.status(403).json({ error: "Manager access required" });
@@ -152,6 +160,7 @@ function requireManager(req, res, next) {
   next();
 }
 
+// Helper function to calculate available capacity
 async function getAvailableCapacity(engineerId, startDate, endDate) {
   try {
     const engineer = await User.findById(engineerId);
@@ -159,6 +168,7 @@ async function getAvailableCapacity(engineerId, startDate, endDate) {
       return 0;
     }
 
+    // Find overlapping assignments
     const overlappingAssignments = await Assignment.find({
       engineerId,
       $or: [
@@ -180,6 +190,7 @@ async function getAvailableCapacity(engineerId, startDate, endDate) {
   }
 }
 
+// Authentication Routes
 app.post("/api/auth/register", async (req, res) => {
   try {
     const {
@@ -193,13 +204,16 @@ app.post("/api/auth/register", async (req, res) => {
       department,
     } = req.body;
 
+    // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: "User already exists" });
     }
 
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Create user
     const user = new User({
       email,
       name,
@@ -213,6 +227,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     await user.save();
 
+    // Generate token
     const token = jwt.sign(
       { userId: user._id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
@@ -241,16 +256,19 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Find user
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ error: "Invalid credentials" });
     }
 
+    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ error: "Invalid credentials" });
     }
 
+    // Generate token
     const token = jwt.sign(
       { userId: user._id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
@@ -284,10 +302,12 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
+// Engineer Routes
 app.get("/api/engineers", authenticateToken, async (req, res) => {
   try {
     const engineers = await User.find({ role: "engineer" }).select("-password");
 
+    // Calculate current capacity for each engineer
     const engineersWithCapacity = await Promise.all(
       engineers.map(async (engineer) => {
         const currentDate = new Date();
@@ -330,6 +350,7 @@ app.get("/api/engineers/:id/capacity", authenticateToken, async (req, res) => {
   }
 });
 
+// Project Routes
 app.get("/api/projects", authenticateToken, async (req, res) => {
   try {
     const projects = await Project.find()
@@ -409,11 +430,13 @@ app.delete(
     try {
       const { id } = req.params;
 
+      // Check if project exists
       const project = await Project.findById(id);
       if (!project) {
         return res.status(404).json({ error: "Project not found" });
       }
 
+      // Check if there are any active assignments for this project
       const activeAssignments = await Assignment.find({ projectId: id });
       if (activeAssignments.length > 0) {
         return res.status(400).json({
@@ -422,6 +445,7 @@ app.delete(
         });
       }
 
+      // Delete the project
       await Project.findByIdAndDelete(id);
       res.json({ message: "Project deleted successfully" });
     } catch (error) {
@@ -430,10 +454,12 @@ app.delete(
   }
 );
 
+// Assignment Routes
 app.get("/api/assignments", authenticateToken, async (req, res) => {
   try {
     let query = {};
 
+    // If engineer, only show their assignments
     if (req.user.role === "engineer") {
       query.engineerId = req.user.userId;
     }
@@ -464,6 +490,7 @@ app.post(
         role,
       } = req.body;
 
+      // Validate required fields
       if (
         !engineerId ||
         !projectId ||
@@ -478,16 +505,19 @@ app.post(
         });
       }
 
+      // Validate engineer exists
       const engineer = await User.findById(engineerId);
       if (!engineer) {
         return res.status(404).json({ error: "Engineer not found" });
       }
 
+      // Validate project exists
       const project = await Project.findById(projectId);
       if (!project) {
         return res.status(404).json({ error: "Project not found" });
       }
 
+      // Check if engineer has enough capacity
       const availableCapacity = await getAvailableCapacity(
         engineerId,
         new Date(startDate),
@@ -500,6 +530,7 @@ app.post(
         });
       }
 
+      // Create the assignment
       const assignment = new Assignment({
         engineerId,
         projectId,
@@ -511,6 +542,7 @@ app.post(
 
       await assignment.save();
 
+      // Populate the assignment with engineer and project details
       await assignment.populate("engineerId", "name email skills seniority");
       await assignment.populate("projectId", "name description status");
 
@@ -565,6 +597,7 @@ app.delete(
   }
 );
 
+// Analytics Routes
 app.get(
   "/api/analytics/utilization",
   authenticateToken,
@@ -604,12 +637,15 @@ app.get(
   }
 );
 
+// Seed data endpoint (for development)
 app.post("/api/seed", async (req, res) => {
   try {
+    // Clear existing data
     await User.deleteMany({});
     await Project.deleteMany({});
     await Assignment.deleteMany({});
 
+    // Create sample users
     const hashedPassword = await bcrypt.hash("password123", 10);
 
     const users = await User.insertMany([
@@ -647,13 +683,14 @@ app.post("/api/seed", async (req, res) => {
         role: "engineer",
         skills: ["React", "TypeScript", "Next.js", "GraphQL"],
         seniority: "junior",
-        maxCapacity: 50,
+        maxCapacity: 50, // Part-time
         department: "Frontend",
       },
     ]);
 
     const manager = users.find((u) => u.role === "manager");
 
+    // Create sample projects
     const projects = await Project.insertMany([
       {
         name: "E-commerce Platform",
@@ -688,10 +725,11 @@ app.post("/api/seed", async (req, res) => {
       },
     ]);
 
+    // Create sample assignments
     const engineers = users.filter((u) => u.role === "engineer");
     await Assignment.insertMany([
       {
-        engineerId: engineers[0]._id,
+        engineerId: engineers[0]._id, // John
         projectId: projects[0]._id,
         allocationPercentage: 60,
         startDate: new Date("2025-06-01"),
@@ -699,7 +737,7 @@ app.post("/api/seed", async (req, res) => {
         role: "Tech Lead",
       },
       {
-        engineerId: engineers[1]._id,
+        engineerId: engineers[1]._id, // Alice
         projectId: projects[1]._id,
         allocationPercentage: 80,
         startDate: new Date("2025-07-01"),
@@ -707,7 +745,7 @@ app.post("/api/seed", async (req, res) => {
         role: "Backend Developer",
       },
       {
-        engineerId: engineers[2]._id,
+        engineerId: engineers[2]._id, // Bob
         projectId: projects[2]._id,
         allocationPercentage: 40,
         startDate: new Date("2025-06-15"),
